@@ -136,15 +136,12 @@ for i in range(1):
             if ((i + 1) * base ** j - 1 < minibin_capacity):
                  enc_client_data[i][j] = ts.bfv_vector_from(private_context, received_enc_query_serialized[i][j])#.decrypt()
                  print(f"Type of enc_client_data[{i}][{j}]: {type(enc_client_data[i][j])}, Value: {enc_client_data[i][j]}")
-    #!!!!!print(f"Type of decrypted value: {type(decrypted_value)}, Value: {decrypted_value}")  # Debug
-    #print("Decrypted Client's data in server:", received_enc_query)
-    # Write the decrypted data to a file
+    
     with open('encrypted__cllient_data.txt', 'w') as file:
         for row in enc_client_data:
             line = ', '.join(str(x) for x in row)  # This will convert each item in the row to a string, skipping 'None' values
             file.write(line + '\n')
-    #!!!!!!!!print(f"Type of decrypted item: {type(decrypted_value)}")
-    #!!!!!!print(f"Type of decrypted_value[{i}][{j}]: {type(decrypted_value[i][j])}, Value: {decrypted_value[i][j]}")
+
 
    #-----------------------------------------------------Step4: Recover encrypted powers encrypted powers-------------------------------------------------------------------
     pdb.set_trace()
