@@ -1,10 +1,11 @@
 from math import log2
+from random import sample
+import os
 
-# sizes of databases of server and client
-# size of intersection should be less than size of client's database
-server_size = 2 ** 20
-client_size = 4000
-intersection_size = 3500
+# Significantly reduced sizes for easier understanding and testing
+server_size = 30
+client_size = 20
+intersection_size = 10
 
 # seeds used by both the Server and the Client for the Murmur hash functions
 hash_seeds = [123456789, 10111213141516, 17181920212223]
@@ -24,11 +25,6 @@ number_of_hashes = 3
 sigma_max = int(log2(plain_modulus)) + output_bits - (int(log2(number_of_hashes)) + 1) 
 
 # B = [68, 176, 536, 1832, 6727] for log(server_size) = [16, 18, 20, 22, 24]
-bin_capacity = 536
-
-# partitioning parameter
-alpha = 16
-
-# windowing parameter
+bin_capacity = 10
+alpha = 2
 ell = 2
-

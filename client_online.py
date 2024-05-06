@@ -7,6 +7,10 @@ from parameters import sigma_max, output_bits, plain_modulus, poly_modulus_degre
 from cuckoo_hash import reconstruct_item, Cuckoo
 from auxiliary_functions import windowing
 from oprf import order_of_generator, client_prf_online_parallel
+import logging
+import pdb
+import base64
+import json
 
 oprf_client_key = 12345678910111213141516171819222222222222
 
@@ -19,12 +23,39 @@ dummy_msg_client = 2 ** (sigma_max - output_bits + log_no_hashes)
 client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 client.connect(('localhost', 4470))
 
-# Setting the public and private contexts for the BFV Homorphic Encryption scheme
-private_context = ts.context(ts.SCHEME_TYPE.BFV, poly_modulus_degree=poly_modulus_degree, plain_modulus=plain_modulus)
-public_context = ts.context_from(private_context.serialize())
-public_context.make_context_public()
+#------------------------------------------------------------------------Step1: Getting public key from server---------------------------------------------
+try:
+# The client receives bytes that represent the public HE context
+    pdb.set_trace()
+    L = client.recv(10).decode().strip()
+    L = int(L, 10)
+    public_key = b""
+    while len(public_key) < L:
+        data = client.recv(4096)
+        if not data:
+            logging.error("No more data received for public key.")
+            break
+        public_key += data
+    logging.debug(f"Received public key bytes: {public_key[:50]}...")  # Log first 50 bytes for inspection
+    logging.info("Public key received from server.")
+
+    t2 = time()    
+    # Here we recover the public context received from the server
+    received_data = pickle.loads(public_key)
+    srv_context = ts.context_from(received_data)
+    #pdb.set_trace()
+    logging.info("Recovered the public context received from the server.")
+    logging.debug(f"Deserialized public key type: {type(received_data)}")
+    logging.debug(f"Deserialized public key content (sample): {str(received_data)[:200]}")
+except Exception as e:
+    logging.error(f"Error during public key reception or deserialization: {e}")
+    # Decide whether to exit, retry, or handle error differently
+    exit(1)
+
+#-------------------------------------------------------------------Step2: OPRF client online-----------------------------------------------------------------
 
 # We prepare the partially OPRF processed database to be sent to the server
+#pdb.set_trace()
 pickle_off = open("client_preprocessed", "rb")
 encoded_client_set = pickle.load(pickle_off)
 encoded_client_set_serialized = pickle.dumps(encoded_client_set, protocol=None)
@@ -53,7 +84,10 @@ key_inverse = pow(oprf_client_key, -1, order_of_generator)
 PRFed_client_set = client_prf_online_parallel(key_inverse, PRFed_encoded_client_set)
 print(' * OPRF protocol done!')
 
+#--------------------------------------------------Step3: Insert client data(OPRF datset) in the hash function------------------------------------------------
+
 # Each PRFed item from the client set is mapped to a Cuckoo hash table
+pdb.set_trace()
 CH = Cuckoo(hash_seeds)
 for item in PRFed_client_set:
     CH.insert(item)
@@ -63,22 +97,31 @@ for i in range(CH.number_of_bins):
     if (CH.data_structure[i] == None):
         CH.data_structure[i] = dummy_msg_client
 
+#-----------------------------------------------------Step4: Windowing on hashed client's data---------------------------------------------------------------------
+
 # We apply the windowing procedure for each item from the Cuckoo structure
+pdb.set_trace()
 windowed_items = []
 for item in CH.data_structure:
     windowed_items.append(windowing(item, minibin_capacity, plain_modulus))
 
+
+
+#-------------------------------------------------------Step5: Batching and encryption on client's data before sending to server---------------------------------------------------
+
 plain_query = [None for k in range(len(windowed_items))]
 enc_query = [[None for j in range(logB_ell)] for i in range(1, base)]
-
 # We create the <<batched>> query to be sent to the server
 # By our choice of parameters, number of bins = poly modulus degree (m/N =1), so we get (base - 1) * logB_ell ciphertexts
+pdb.set_trace()
 for j in range(logB_ell):
     for i in range(base - 1):
         if ((i + 1) * base ** j - 1 < minibin_capacity):
             for k in range(len(windowed_items)):
                 plain_query[k] = windowed_items[k][i][j]
-            enc_query[i][j] = ts.bfv_vector(private_context, plain_query)
+            enc_query[i][j] = ts.bfv_vector(srv_context, plain_query)
+
+print("Plain formmat of Client's data:", enc_query)
 
 enc_query_serialized = [[None for j in range(logB_ell)] for i in range(1, base)]
 for j in range(logB_ell):
@@ -86,7 +129,9 @@ for j in range(logB_ell):
         if ((i + 1) * base ** j - 1 < minibin_capacity):
             enc_query_serialized[i][j] = enc_query[i][j].serialize()
 
-context_serialized = public_context.serialize()
+#------------------------------------------------------Step6: Sending encrypted data to server-----------------------------------------------------------------------------------
+pdb.set_trace()
+context_serialized = srv_context.serialize()
 message_to_be_sent = [context_serialized, enc_query_serialized]
 message_to_be_sent_serialized = pickle.dumps(message_to_be_sent, protocol=None)
 t1 = time()
@@ -99,6 +144,8 @@ print(" * Sending the context and ciphertext to the server....")
 # Now we send the message to the server
 client.sendall(message_to_be_sent_serialized)
 
+#------------------------------------------------------------Step7: receive and Decrypt the results of PSI frpm server--------------------------------------------------
+pdb.set_trace()
 print(" * Waiting for the servers's answer...")
 
 # The answer obtained from the server:
@@ -115,8 +162,11 @@ server_to_client_query_response = len(answer) #bytes
 ciphertexts = pickle.loads(answer)
 decryptions = []
 for ct in ciphertexts:
-    decryptions.append(ts.bfv_vector_from(private_context, ct).decrypt())
+    decryptions.append(ct)
 
+
+#---------------------------------------------Stp8: Recoverig and Finding the location of intersection in Client set-----------------------------------------------------------------
+pdb.set_trace()
 recover_CH_structure = []
 for matrix in windowed_items:
     recover_CH_structure.append(matrix[0][0])
@@ -138,11 +188,15 @@ for j in range(alpha):
             index = PRFed_client_set.index(PRFed_common_element)
             client_intersection.append(int(client_set_entries[index][:-1]))
 
+#----------------------------------------------------------Step9: heck the matches of PSIs with the real intesection we had----------------------------------------------------
+pdb.set_trace()
 h = open('intersection', 'r')
 real_intersection = [int(line[:-1]) for line in h]
 h.close()
 t3 = time()
 print('\n Intersection recovered correctly: {}'.format(set(client_intersection) == set(real_intersection)))
+print("Client set intersection is:", client_intersection)
+print("Real intersection is:", real_intersection)
 print("Disconnecting...\n")
 print('  Client ONLINE computation time {:.2f}s'.format(t1 - t0 + t3 - t2))
 print('  Communication size:')
